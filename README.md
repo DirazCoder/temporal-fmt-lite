@@ -1,21 +1,12 @@
 # temporal-fmt-lite
 
-Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
-using date-fns-style token strings.
+Format Temporal dates with date-fns-style tokens. Just `format()` and `parse()`, nothing else.
 
-This is the small one. If you just want `format()` and `parse()` and
-nothing else, this is a frozen, stripped-down snapshot of
-[`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two
-functions, same locale support, same `setTemporal()` escape hatch, ~7x
-smaller install, and no growth planned. See [Why this
-exists](#why-this-exists) below.
+This is a frozen, stripped-down copy of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, ~7x smaller, and it's staying that way. See [why](#why) below.
 
-Zero dependencies. Native on Node 26+, or bring your own via a polyfill or
-`setTemporal()`.
+No deps. Works natively on Node 26+. Bring a polyfill if you're older.
 
-Locale-aware tokens need Node 20+ regardless of which path you use — native
-on 26+, or falling back to the Temporal implementation's own
-`toLocaleString()` otherwise. Untested below Node 20.
+Locale stuff (month/weekday names) needs Node 20+ either way. Haven't tested below that.
 
 ## Install
 
@@ -23,39 +14,27 @@ on 26+, or falling back to the Temporal implementation's own
 npm install temporal-fmt-lite
 ```
 
-## Providing `Temporal`
+## Getting Temporal
 
-### Node 26+
+**Node 26+:** you're done, it's built in.
 
-Temporal is native and used automatically.
-
-### Polyfill
-
-Use a polyfill like [`temporal-polyfill`](https://github.com/fullcalendar/temporal-polyfill) to implement Temporal
-in the global namespace.
+**Older Node:** grab a polyfill like [`temporal-polyfill`](https://github.com/fullcalendar/temporal-polyfill):
 
 ```js
 import 'temporal-polyfill/global'
 import { format, parse } from 'temporal-fmt-lite';
-
-parse(...);
 ```
 
-### Bring Your Own
-
-Set a Temporal implementation explicitly, once, before your app's first
-`format()`/`parse()` call:
+Or set it manually if you don't want to touch globals (useful in libraries):
 
 ```js
 import { Temporal } from 'temporal-polyfill/full';
 import { setTemporal, format, parse } from 'temporal-fmt-lite';
 
-setTemporal(Temporal); // once, before using `format` or `parse`.
+setTemporal(Temporal); // do this before calling format/parse
 ```
 
-`setTemporal()` takes precedence over native or global Temporal, and calling
-it again overrides whatever was set before. Useful when you don't want to
-pollute the global namespace, like for libraries.
+Calling `setTemporal()` again just overwrites whatever was set before.
 
 ## Usage
 
@@ -73,89 +52,63 @@ const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-04:00[America/New_Y
 format(zdt, 'yyyy-MM-dd HH:mm zzz');   // "2026-08-04 15:45 America/New_York"
 ```
 
-Wrap literal text in single quotes, like `'at'` above. Need an actual single
-quote in your output? Use `''`.
+Want literal text in the output? Wrap it in single quotes, like `'at'` above. Need an actual quote character? Use `''`.
 
-## Parsing a string
+## Parsing
 
-`parse` builds a `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` /
-`ZonedDateTime` out of a string, picking whichever type fits the tokens
-present:
+`parse` figures out whether you get a PlainDate, PlainTime, PlainDateTime, or ZonedDateTime based on which tokens you used:
 
 ```js
 import { parse } from 'temporal-fmt-lite';
 
-parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // Temporal.PlainDateTime
-parse('yyyy-MM', '2026-08-04T15:45:30');          // throws — shape doesn't match
-parse('yyyy-MM-dd', '2026-02-30');                // throws — not a real date
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // PlainDateTime
+parse('yyyy-MM', '2026-08-04T15:45:30');          // throws, shape doesn't match
+parse('yyyy-MM-dd', '2026-02-30');                // throws, Feb 30 isn't a day
 ```
 
-Because the format is unknown at runtime you will need to check the result
-with `instanceof`, or manually assert/type guard it in Typescript, to narrow the type.
+You'll need an `instanceof` check (or a type guard in TS) to know what you got back, since the return type depends on the format string.
 
-Since `parse` constructs a real value rather than just matching shape, it
-catches an impossible date like February 30th, or a weekday name that
-doesn't match the date it's paired with:
+It actually builds the date rather than just pattern-matching, so it'll also catch a weekday that doesn't match the date:
 
 ```js
-parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine — that really is a Tuesday
-parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws — it isn't
+parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine, that's really a Tuesday
+parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws, it's not
 ```
 
-`parse` throws when `input` doesn't match `formatStr`'s shape at all
-or throws a descriptive error if the computed date is not valid.
+Some gotchas:
 
-A few things worth knowing:
+- **`yy` (2-digit year)** works like old-school strptime: `00–68` → `2000–2068`, `69–99` → `1900–1999`. Yes it's arbitrary, but it means `yy` doesn't need some external reference date to resolve.
+- **Mixing `hh`/`h` with `HH`/`H`, or using `hh`/`h` without an `a` token, throws.** It won't guess which one you meant even if they'd agree on the hour anyway. Just pick one.
+- **`MMMM`/`MMM` name matching only really knows 12-month calendars.** It's built off 12 Gregorian reference dates, so calendars with leap months (Hebrew, for instance) aren't fully covered by name. Numeric `yyyy-MM-dd` is fine regardless.
 
-- **`yy` (2-digit year)** emulates POSIX-style [strptime](https://www.man7.org/linux//man-pages/man3/strptime.3p.html): `00–68`
-  becomes `2000–2068`, `69–99` becomes `1900–1999`.
-  - this is an opinionated tradeoff but ensures `yy` is deterministic without an external date reference
-- **`hh`/`h` (12-hour) without an `a` token throws** — same if a format string mixes `HH`/`H` with `hh`/`h`,
-  even when both agree on the same hour. `parse` won't guess which one is authoritative; pick one.
-- **`MMMM`/`MMM` name matching assumes a 12-month calendar** — the vocabulary
-  it matches against is generated from 12 Gregorian reference dates, so a
-  calendar with a leap month (e.g. Hebrew's 13-month leap years) isn't fully
-  covered by month *names*. Numeric `yyyy-MM-dd` round-trips aren't affected.
+## Locales
 
-## Locale support
-
-Pass a BCP 47 locale tag as a third argument and month names, weekday names,
-and AM/PM markers all localize accordingly. Defaults to `'en-US'` if you don't.
+Pass a BCP 47 tag as the third arg and month/weekday/AM-PM names localize. Default is `'en-US'`.
 
 ```js
 format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // "août 4, 2026"
-format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic weekday/month names
+format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic names
 format(dt, 'h:mm a', { locale: 'ja-JP' });            // "3:45 午後"
 ```
 
-`a` matches AM/PM markers case-insensitively when parsing (`"pm"`, `"Pm"`,
-and `"PM"` all work).
+`a` matches AM/PM case-insensitively when parsing — `pm`, `Pm`, `PM`, whatever.
 
-The named fields (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through
-`Intl.DateTimeFormat` under the hood, which means non-Gregorian calendars
-work too, as long as the `Temporal` object is already carrying one:
+The name-based tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through `Intl.DateTimeFormat`, so non-Gregorian calendars work too as long as your Temporal object already has one:
 
 ```js
 const hebrewDate = date.withCalendar('hebrew');
 format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
 ```
 
-The above holds true for `parse` as well:
+Same deal for parsing:
 
 ```js
 parse('MMMM d, yyyy','août 4, 2026', { locale: 'fr-FR' });
 parse('h:mm a', '3:45 午後', { locale: 'ja-JP' });
-// `-u-ca-` calendar extension parses into that calendar
-parse('yyyy-MM-dd', '5786-11-21', { locale: 'en-u-ca-hebrew' });
+parse('yyyy-MM-dd', '5786-11-21', { locale: 'en-u-ca-hebrew' }); // -u-ca- picks the calendar
 ```
 
-**Numeric fields (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`) always come out
-in Western (0-9) digits, no matter what locale you pass.** On purpose. Most
-things reading this output back in — logs, APIs, filenames — want boring,
-predictable ASCII digits, and locale-native numeral systems like Arabic-Indic
-or Devanagari don't play nicely with this library's zero-padding logic anyway.
-Need localized digits? Run the numeric pieces through `Intl.NumberFormat`
-yourself.
+**One thing that's non-negotiable: numbers always come out as plain 0-9 digits, no matter the locale.** Not a bug. Stuff that reads these values back — logs, APIs, filenames — wants boring ASCII digits, and the padding logic doesn't play nice with Arabic-Indic or Devanagari numerals anyway. If you want localized digits, run them through `Intl.NumberFormat` yourself.
 
 ## Tokens
 
@@ -183,77 +136,30 @@ yourself.
 | a     | AM/PM              | PM      |
 | zzz   | IANA time zone id  | America/New_York |
 
-This is the complete token list, and it isn't growing — see
-[Why this exists](#why-this-exists). Try to use a token your input type
-doesn't support — `HH` on a `PlainDate`, say — and you'll get a real error
-telling you so, not a silent `undefined` sitting in your output waiting to
-confuse someone in three weeks.
+That's all of them, and there won't be more. Use a token your input doesn't support — `HH` on a plain date, say — and it throws a real error instead of quietly giving you `undefined`.
 
-## Why this exists
+## Why
 
-`temporal-fmt` started small: `format()`, `parse()`, locale support, done.
-Over time it grew a CLI, IDE tooling, a mod/plugin sandbox, business
-calendars, holiday calendars, recurrence rules, a timezone subsystem, and
-more — useful things individually, but the combination turned a ~200KB
-install into a multi-megabyte one for people who only ever wanted to type
-`'yyyy-MM-dd'` instead of learning `Intl.DateTimeFormat` options. See
-[dirazcoder/temporal-fmt#9](https://github.com/DirazCoder/temporal-fmt/issues/9)
-for the numbers.
+`temporal-fmt` started as just `format()` and `parse()`. Then it grew a CLI, IDE tooling, a plugin sandbox, business calendars, holiday calendars, recurrence rules, a timezone subsystem... all useful on their own, but together they turned a 200KB install into several megabytes for anyone who just wanted `'yyyy-MM-dd'`. Numbers are in [dirazcoder/temporal-fmt#9](https://github.com/DirazCoder/temporal-fmt/issues/9) if you want them.
 
-`temporal-fmt-lite` is that original surface, pulled back out: the exact
-`format()`/`parse()` API and behavior as of `temporal-fmt` v0.8.2, rebuilt
-against the current, more correct internals (a few real bugs — a ReDoS in
-certain glued-token format strings, a couple of parsing edge cases, an
-unhelpful crash on `null` input — have been fixed underneath), with
-everything added after v0.8.2 left out.
+This package is that original surface, pulled back out — same `format()`/`parse()` behavior as `temporal-fmt` v0.8.2, rebuilt on the current internals (fixed a ReDoS in some glued-token format strings, a couple parsing edge cases, and a crash on `null` input along the way). Nothing added after v0.8.2 made the cut.
 
-**What that means going forward:**
+**What that means:**
 
-- No new tokens, no new exported functions, no new options. If it's not in
-  this README, it's not going to quietly show up in a patch release.
-- Only security and correctness fixes get backported — things that don't
-  change what already-working code does, they just make broken edge cases
-  behave the way the docs always said they would.
-- No LTS guarantee. This is a small, deliberately-finished package, not an
-  actively developed product. If you outgrow it — you need the CLI, IDE
-  tooling, recurrence rules, business calendars, or any of the rest —
-  `temporal-fmt` itself is the natural next step, and this package's API is
-  a strict subset of that one's, so migrating is additive, not a rewrite.
+- No new tokens, functions, or options, ever. If it's not in this README it's not sneaking in later.
+- Only security/correctness fixes get backported, and only ones that don't change existing behavior — just make broken edge cases work the way the docs already claimed.
+- No LTS promise. This is small and done, not a growing product. If you outgrow it and need the CLI, recurrence rules, business calendars, whatever — go to `temporal-fmt` itself. Since this package's API is a subset of that one's, migrating is just adding stuff, not rewriting.
 
 ## Known limitations
 
-- Numeral systems are always Western digits — see [Locale support](#locale-support).
-- Locale-aware tokens need Node 20+, native or polyfilled. Untested below Node 20.
-- As mentioned above, you must [provide a Temporal implementation](#providing-temporal)
-  if it is not natively provided (Node 26+)
-- On engines with native `Temporal` support (Node 26+), locale-aware tokens
-  (`MMMM`/`MMM`/`EEEE`/`EEE`) can render the wrong month or weekday for dates
-  before around 1582 CE. This is a known ICU limitation, not a bug in this
-  library: ICU's default Gregorian calendar cutover is October 15, 1582, so
-  `Intl.DateTimeFormat.formatToParts()` silently reinterprets earlier dates
-  under the Julian calendar, even though `Temporal` itself uses a proleptic
-  Gregorian calendar throughout — see
-  [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003). Numeric
-  tokens (`yyyy`/`MM`/`dd`) never go through `Intl` and aren't affected.
-- Gluing two unpadded numeric tokens with no separator between them (e.g.
-  `Md`, `dM`, `Hm`) is ambiguous for some inputs, and `parse()` throws rather
-  than guessing. `"121"` against `yyyy-Md` could mean month 1/day 21 or month
-  12/day 1 — both are valid, so there's no single correct reading to fall
-  back to. Unambiguous inputs against the same format string still parse
-  normally (`"85"` against `yyyy-Md` only has one valid split). If you need
-  glued numeric fields, either zero-pad them (`MM`/`dd`) or put a separator
-  between them; that removes the ambiguity entirely.
+- Numbers are always Western digits, see the locale section above.
+- Locale tokens need Node 20+. Untested below that.
+- You have to hook up Temporal yourself unless you're on Node 26+.
+- On native Temporal (Node 26+), locale name tokens (`MMMM`/`MMM`/`EEEE`/`EEE`) can get the wrong month or weekday for dates before ~1582 CE. That's ICU defaulting to the Julian calendar before its Gregorian cutover date, not a bug here — Temporal itself is proleptic Gregorian throughout. See [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003) if you care. Numeric tokens don't go through ICU so they're unaffected.
+- Gluing two unpadded numeric tokens together with nothing between them (`Md`, `dM`, `Hm`) is ambiguous sometimes, and `parse()` throws instead of guessing. `"121"` against `yyyy-Md` could be month 1/day 21 or month 12/day 1 — both valid, no way to pick. Inputs that aren't ambiguous still work fine (`"85"` against `yyyy-Md` only has one valid reading). Fix: zero-pad (`MM`/`dd`) or stick a separator in there.
 
-  Note: `Md` (or `dM`/`Hm`) alone, with no `yyyy`, always throws —
-  `parse()` requires year, month, and day together to build a date, so a
-  bare `Md` format string is incomplete regardless of ambiguity. The
-  examples above use `yyyy-Md` for exactly this reason.
-- Format strings with many glued numeric tokens placed directly next to
-  digit-consuming neighbors are rejected outright at parse-pattern build
-  time (e.g. `'Md'.repeat(13)`) rather than compiled — this shape causes
-  exponential regex backtracking on near-miss input in any implementation
-  that doesn't specifically guard against it. Add a separator between
-  tokens (or use their padded forms) and the format string works normally.
+  Also: `Md` alone with no `yyyy` always throws, ambiguous or not — `parse()` needs year+month+day to build a date, period.
+- A format string with a ton of glued numeric tokens back to back (like `'Md'.repeat(13)`) gets rejected outright instead of compiled, because that shape causes exponential regex backtracking on near-miss input. Add separators or use padded tokens and it's fine.
 
 ## License
 
