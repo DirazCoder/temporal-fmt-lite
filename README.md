@@ -1,0 +1,260 @@
+# temporal-fmt-lite
+
+Format `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` / `ZonedDateTime` objects
+using date-fns-style token strings.
+
+This is the small one. If you just want `format()` and `parse()` and
+nothing else, this is a frozen, stripped-down snapshot of
+[`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two
+functions, same locale support, same `setTemporal()` escape hatch, ~7x
+smaller install, and no growth planned. See [Why this
+exists](#why-this-exists) below.
+
+Zero dependencies. Native on Node 26+, or bring your own via a polyfill or
+`setTemporal()`.
+
+Locale-aware tokens need Node 20+ regardless of which path you use — native
+on 26+, or falling back to the Temporal implementation's own
+`toLocaleString()` otherwise. Untested below Node 20.
+
+## Install
+
+```sh
+npm install temporal-fmt-lite
+```
+
+## Providing `Temporal`
+
+### Node 26+
+
+Temporal is native and used automatically.
+
+### Polyfill
+
+Use a polyfill like [`temporal-polyfill`](https://github.com/fullcalendar/temporal-polyfill) to implement Temporal
+in the global namespace.
+
+```js
+import 'temporal-polyfill/global'
+import { format, parse } from 'temporal-fmt-lite';
+
+parse(...);
+```
+
+### Bring Your Own
+
+Set a Temporal implementation explicitly, once, before your app's first
+`format()`/`parse()` call:
+
+```js
+import { Temporal } from 'temporal-polyfill/full';
+import { setTemporal, format, parse } from 'temporal-fmt-lite';
+
+setTemporal(Temporal); // once, before using `format` or `parse`.
+```
+
+`setTemporal()` takes precedence over native or global Temporal, and calling
+it again overrides whatever was set before. Useful when you don't want to
+pollute the global namespace, like for libraries.
+
+## Usage
+
+```js
+import { format } from 'temporal-fmt-lite';
+
+const date = Temporal.PlainDate.from('2026-08-04');
+format(date, 'yyyy-MM-dd');           // "2026-08-04"
+format(date, 'MMMM d, yyyy');         // "August 4, 2026"
+
+const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
+format(dt, "MMM d, yyyy 'at' h:mm a"); // "Aug 4, 2026 at 3:45 PM"
+
+const zdt = Temporal.ZonedDateTime.from('2026-08-04T15:45:30-04:00[America/New_York]');
+format(zdt, 'yyyy-MM-dd HH:mm zzz');   // "2026-08-04 15:45 America/New_York"
+```
+
+Wrap literal text in single quotes, like `'at'` above. Need an actual single
+quote in your output? Use `''`.
+
+## Parsing a string
+
+`parse` builds a `Temporal.PlainDate` / `PlainTime` / `PlainDateTime` /
+`ZonedDateTime` out of a string, picking whichever type fits the tokens
+present:
+
+```js
+import { parse } from 'temporal-fmt-lite';
+
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // Temporal.PlainDateTime
+parse('yyyy-MM', '2026-08-04T15:45:30');          // throws — shape doesn't match
+parse('yyyy-MM-dd', '2026-02-30');                // throws — not a real date
+```
+
+Because the format is unknown at runtime you will need to check the result
+with `instanceof`, or manually assert/type guard it in Typescript, to narrow the type.
+
+Since `parse` constructs a real value rather than just matching shape, it
+catches an impossible date like February 30th, or a weekday name that
+doesn't match the date it's paired with:
+
+```js
+parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine — that really is a Tuesday
+parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws — it isn't
+```
+
+`parse` throws when `input` doesn't match `formatStr`'s shape at all
+or throws a descriptive error if the computed date is not valid.
+
+A few things worth knowing:
+
+- **`yy` (2-digit year)** emulates POSIX-style [strptime](https://www.man7.org/linux//man-pages/man3/strptime.3p.html): `00–68`
+  becomes `2000–2068`, `69–99` becomes `1900–1999`.
+  - this is an opinionated tradeoff but ensures `yy` is deterministic without an external date reference
+- **`hh`/`h` (12-hour) without an `a` token throws** — same if a format string mixes `HH`/`H` with `hh`/`h`,
+  even when both agree on the same hour. `parse` won't guess which one is authoritative; pick one.
+- **`MMMM`/`MMM` name matching assumes a 12-month calendar** — the vocabulary
+  it matches against is generated from 12 Gregorian reference dates, so a
+  calendar with a leap month (e.g. Hebrew's 13-month leap years) isn't fully
+  covered by month *names*. Numeric `yyyy-MM-dd` round-trips aren't affected.
+
+## Locale support
+
+Pass a BCP 47 locale tag as a third argument and month names, weekday names,
+and AM/PM markers all localize accordingly. Defaults to `'en-US'` if you don't.
+
+```js
+format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // "août 4, 2026"
+format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic weekday/month names
+format(dt, 'h:mm a', { locale: 'ja-JP' });            // "3:45 午後"
+```
+
+`a` matches AM/PM markers case-insensitively when parsing (`"pm"`, `"Pm"`,
+and `"PM"` all work).
+
+The named fields (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through
+`Intl.DateTimeFormat` under the hood, which means non-Gregorian calendars
+work too, as long as the `Temporal` object is already carrying one:
+
+```js
+const hebrewDate = date.withCalendar('hebrew');
+format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
+```
+
+The above holds true for `parse` as well:
+
+```js
+parse('MMMM d, yyyy','août 4, 2026', { locale: 'fr-FR' });
+parse('h:mm a', '3:45 午後', { locale: 'ja-JP' });
+// `-u-ca-` calendar extension parses into that calendar
+parse('yyyy-MM-dd', '5786-11-21', { locale: 'en-u-ca-hebrew' });
+```
+
+**Numeric fields (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`) always come out
+in Western (0-9) digits, no matter what locale you pass.** On purpose. Most
+things reading this output back in — logs, APIs, filenames — want boring,
+predictable ASCII digits, and locale-native numeral systems like Arabic-Indic
+or Devanagari don't play nicely with this library's zero-padding logic anyway.
+Need localized digits? Run the numeric pieces through `Intl.NumberFormat`
+yourself.
+
+## Tokens
+
+| Token | Meaning            | Example |
+|-------|--------------------|---------|
+| yyyy  | 4-digit year       | 2026    |
+| yy    | 2-digit year       | 26      |
+| MMMM  | full month name    | August  |
+| MMM   | short month name   | Aug     |
+| MM    | 2-digit month      | 08      |
+| M     | month              | 8       |
+| dd    | 2-digit day        | 04      |
+| d     | day                | 4       |
+| EEEE  | full weekday       | Tuesday |
+| EEE   | short weekday      | Tue     |
+| HH    | 2-digit hour (24h) | 15      |
+| H     | hour (24h)         | 15      |
+| hh    | 2-digit hour (12h) | 03      |
+| h     | hour (12h)         | 3       |
+| mm    | 2-digit minute     | 45      |
+| m     | minute             | 45      |
+| ss    | 2-digit second     | 30      |
+| s     | second             | 30      |
+| SSS   | milliseconds       | 000     |
+| a     | AM/PM              | PM      |
+| zzz   | IANA time zone id  | America/New_York |
+
+This is the complete token list, and it isn't growing — see
+[Why this exists](#why-this-exists). Try to use a token your input type
+doesn't support — `HH` on a `PlainDate`, say — and you'll get a real error
+telling you so, not a silent `undefined` sitting in your output waiting to
+confuse someone in three weeks.
+
+## Why this exists
+
+`temporal-fmt` started small: `format()`, `parse()`, locale support, done.
+Over time it grew a CLI, IDE tooling, a mod/plugin sandbox, business
+calendars, holiday calendars, recurrence rules, a timezone subsystem, and
+more — useful things individually, but the combination turned a ~200KB
+install into a multi-megabyte one for people who only ever wanted to type
+`'yyyy-MM-dd'` instead of learning `Intl.DateTimeFormat` options. See
+[dirazcoder/temporal-fmt#9](https://github.com/DirazCoder/temporal-fmt/issues/9)
+for the numbers.
+
+`temporal-fmt-lite` is that original surface, pulled back out: the exact
+`format()`/`parse()` API and behavior as of `temporal-fmt` v0.8.2, rebuilt
+against the current, more correct internals (a few real bugs — a ReDoS in
+certain glued-token format strings, a couple of parsing edge cases, an
+unhelpful crash on `null` input — have been fixed underneath), with
+everything added after v0.8.2 left out.
+
+**What that means going forward:**
+
+- No new tokens, no new exported functions, no new options. If it's not in
+  this README, it's not going to quietly show up in a patch release.
+- Only security and correctness fixes get backported — things that don't
+  change what already-working code does, they just make broken edge cases
+  behave the way the docs always said they would.
+- No LTS guarantee. This is a small, deliberately-finished package, not an
+  actively developed product. If you outgrow it — you need the CLI, IDE
+  tooling, recurrence rules, business calendars, or any of the rest —
+  `temporal-fmt` itself is the natural next step, and this package's API is
+  a strict subset of that one's, so migrating is additive, not a rewrite.
+
+## Known limitations
+
+- Numeral systems are always Western digits — see [Locale support](#locale-support).
+- Locale-aware tokens need Node 20+, native or polyfilled. Untested below Node 20.
+- As mentioned above, you must [provide a Temporal implementation](#providing-temporal)
+  if it is not natively provided (Node 26+)
+- On engines with native `Temporal` support (Node 26+), locale-aware tokens
+  (`MMMM`/`MMM`/`EEEE`/`EEE`) can render the wrong month or weekday for dates
+  before around 1582 CE. This is a known ICU limitation, not a bug in this
+  library: ICU's default Gregorian calendar cutover is October 15, 1582, so
+  `Intl.DateTimeFormat.formatToParts()` silently reinterprets earlier dates
+  under the Julian calendar, even though `Temporal` itself uses a proleptic
+  Gregorian calendar throughout — see
+  [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003). Numeric
+  tokens (`yyyy`/`MM`/`dd`) never go through `Intl` and aren't affected.
+- Gluing two unpadded numeric tokens with no separator between them (e.g.
+  `Md`, `dM`, `Hm`) is ambiguous for some inputs, and `parse()` throws rather
+  than guessing. `"121"` against `yyyy-Md` could mean month 1/day 21 or month
+  12/day 1 — both are valid, so there's no single correct reading to fall
+  back to. Unambiguous inputs against the same format string still parse
+  normally (`"85"` against `yyyy-Md` only has one valid split). If you need
+  glued numeric fields, either zero-pad them (`MM`/`dd`) or put a separator
+  between them; that removes the ambiguity entirely.
+
+  Note: `Md` (or `dM`/`Hm`) alone, with no `yyyy`, always throws —
+  `parse()` requires year, month, and day together to build a date, so a
+  bare `Md` format string is incomplete regardless of ambiguity. The
+  examples above use `yyyy-Md` for exactly this reason.
+- Format strings with many glued numeric tokens placed directly next to
+  digit-consuming neighbors are rejected outright at parse-pattern build
+  time (e.g. `'Md'.repeat(13)`) rather than compiled — this shape causes
+  exponential regex backtracking on near-miss input in any implementation
+  that doesn't specifically guard against it. Add a separator between
+  tokens (or use their padded forms) and the format string works normally.
+
+## License
+
+Apache-2.0

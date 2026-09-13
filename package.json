@@ -1,0 +1,66 @@
+{
+  "name": "temporal-fmt-lite",
+  "version": "0.1.0",
+  "description": "Format Temporal.PlainDate/PlainDateTime/PlainTime/ZonedDateTime objects using date-fns-style token strings. Minimal, frozen API, no dependencies.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup && tsc --declaration --emitDeclarationOnly && node scripts/emit-cjs-types.mjs",
+    "dev": "tsup --watch"
+  },
+  "keywords": [
+    "temporal",
+    "date",
+    "time",
+    "format",
+    "tc39"
+  ],
+  "license": "Apache-2.0",
+  "author": {
+    "name": "DirazCoder",
+    "url": "https://github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/temporal-fmt-lite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/temporal-fmt-lite/issues"
+  },
+  "homepage": "https://github.com/temporal-fmt-lite#readme",
+  "devDependencies": {
+    "temporal-polyfill": "^1.0.5",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "overrides": {
+    "esbuild": "$esbuild"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

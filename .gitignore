@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+package-lock.json
+
+# build output
+dist/
+
+# logs
+npm-debug.log*
+*.log
+
+# editor/OS cruft
+.vscode/
+.idea/
+.DS_Store
+
+# env
+.env
+.env.local
