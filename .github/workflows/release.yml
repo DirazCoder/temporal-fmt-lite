@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for OIDC token verification on npm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      # Fails fast if the git tag doesn't match package.json to prevent mismatched releases
+      - name: Verify tag matches package.json version
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
+            echo "Manual trigger detected on branch: ${GITHUB_REF}. Skipping tag matching verification."
+            exit 0
+          fi
+
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF#refs/tags/}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $TAG_VERSION does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      # No test suite by design — this package is a frozen surface with no
+      # ongoing feature work, so there's nothing to keep re-verifying between
+      # releases. The build step still runs so a broken tsup/tsc config fails
+      # here instead of shipping to npm.
+      - run: npm run build
+
+      # Single line of development, no LTS branches — always publish latest.
+      - run: npm publish --provenance --access public --tag latest
