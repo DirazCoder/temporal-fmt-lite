@@ -40,20 +40,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DirazCoder/temporal-fmt-lite.git"
+    "url": "git+https://github.com/temporal-fmt-lite.git"
   },
   "bugs": {
-    "url": "https://github.com/DirazCoder/temporal-fmt-lite/issues"
+    "url": "https://github.com/temporal-fmt-lite/issues"
   },
-  "homepage": "https://github.com/DirazCoder/temporal-fmt-lite#readme",
+  "homepage": "https://github.com/temporal-fmt-lite#readme",
   "devDependencies": {
-    "esbuild": "^0.28.2",
     "temporal-polyfill": "^1.0.5",
     "tsup": "^8.5.1",
     "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2"
   },
   "overrides": {
     "esbuild": "$esbuild"
