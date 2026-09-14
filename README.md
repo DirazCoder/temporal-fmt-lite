@@ -2,7 +2,7 @@
 
 Format Temporal dates with date-fns-style tokens. Just `format()` and `parse()`, nothing else.
 
-This is a frozen, stripped-down copy of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, ~7x smaller, and it's staying that way. See [why](#why) below.
+This is the lite version of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, ~7x smaller. It's meant to stay small. See [why](#why) below.
 
 No deps. Works natively on Node 26+. Bring a polyfill if you're older.
 
@@ -142,24 +142,20 @@ That's all of them, and there won't be more. Use a token your input doesn't supp
 
 `temporal-fmt` started as just `format()` and `parse()`. Then it grew a CLI, IDE tooling, a plugin sandbox, business calendars, holiday calendars, recurrence rules, a timezone subsystem... all useful on their own, but together they turned a 200KB install into several megabytes for anyone who just wanted `'yyyy-MM-dd'`. Numbers are in [dirazcoder/temporal-fmt#9](https://github.com/DirazCoder/temporal-fmt/issues/9) if you want them.
 
-This package is that original surface, pulled back out — same `format()`/`parse()` behavior as `temporal-fmt` v0.8.2, rebuilt on the current internals (fixed a ReDoS in some glued-token format strings, a couple parsing edge cases, and a crash on `null` input along the way). Nothing added after v0.8.2 made the cut.
+This package is that original surface, pulled back out. Same core behavior, same feature set — just the classic `format()`/`parse()` combo, kept small on purpose.
 
 **What that means:**
 
 - No new tokens, functions, or options, ever. If it's not in this README it's not sneaking in later.
-- Only security/correctness fixes get backported, and only ones that don't change existing behavior — just make broken edge cases work the way the docs already claimed.
-- No LTS promise. This is small and done, not a growing product. If you outgrow it and need the CLI, recurrence rules, business calendars, whatever — go to `temporal-fmt` itself. Since this package's API is a subset of that one's, migrating is just adding stuff, not rewriting.
+- This is small and done, not a growing product. If you outgrow it and need the CLI, recurrence rules, business calendars, whatever — go to `temporal-fmt` itself. Since this package's API is a subset of that one's, migrating is just adding stuff, not rewriting.
 
 ## Known limitations
 
 - Numbers are always Western digits, see the locale section above.
 - Locale tokens need Node 20+. Untested below that.
 - You have to hook up Temporal yourself unless you're on Node 26+.
-- On native Temporal (Node 26+), locale name tokens (`MMMM`/`MMM`/`EEEE`/`EEE`) can get the wrong month or weekday for dates before ~1582 CE. That's ICU defaulting to the Julian calendar before its Gregorian cutover date, not a bug here — Temporal itself is proleptic Gregorian throughout. See [tc39/ecma402#1003](https://github.com/tc39/ecma402/issues/1003) if you care. Numeric tokens don't go through ICU so they're unaffected.
-- Gluing two unpadded numeric tokens together with nothing between them (`Md`, `dM`, `Hm`) is ambiguous sometimes, and `parse()` throws instead of guessing. `"121"` against `yyyy-Md` could be month 1/day 21 or month 12/day 1 — both valid, no way to pick. Inputs that aren't ambiguous still work fine (`"85"` against `yyyy-Md` only has one valid reading). Fix: zero-pad (`MM`/`dd`) or stick a separator in there.
-
-  Also: `Md` alone with no `yyyy` always throws, ambiguous or not — `parse()` needs year+month+day to build a date, period.
-- A format string with a ton of glued numeric tokens back to back (like `'Md'.repeat(13)`) gets rejected outright instead of compiled, because that shape causes exponential regex backtracking on near-miss input. Add separators or use padded tokens and it's fine.
+- On native Temporal (Node 26+), locale name tokens (`MMMM`/`MMM`/`EEEE`/`EEE`) can get the wrong month or weekday for dates before ~1582 CE — that's an ICU calendar quirk, not something specific to this package.
+- Gluing two unpadded numeric tokens together with nothing between them (`Md`, `dM`, `Hm`) is ambiguous sometimes, and `parse()` throws instead of guessing. Zero-pad (`MM`/`dd`) or add a separator and it's fine.
 
 ## License
 
