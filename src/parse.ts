@@ -43,24 +43,21 @@ function getPattern(formatStr: string, locale: string): CapturingPattern {
   return pattern;
 }
 
-// Requires an explicit `-u-ca-` extension (e.g. 'en-u-ca-hebrew') to apply
-// a non-Gregorian calendar, per parse()'s own docstring. 'gregory' counts
-// as "no calendar" so the default locale keeps constructing plain ISO 8601.
-//
-// Used to key off resolvedOptions().calendar instead — a locale's
-// *default* calendar, whether the caller asked for one or not. That broke
-// th-TH silently: its default is 'buddhist', so plain Gregorian-looking
-// digits parsed 543 years off, while format() has no matching calendar
-// step and just prints the object's own ISO fields either way.
+// requires an explicit `-u-ca-` extension (e.g. 'en-u-ca-hebrew') to apply a non-Gregorian
+// calendar, per parse()'s own docstring — 'gregory' counts as "no calendar" so the default
+// locale keeps constructing plain ISO 8601. used to key off resolvedOptions().calendar
+// instead (a locale's *default* calendar, whether the caller asked for one or not), which
+// broke th-TH silently: its default is 'buddhist', so plain Gregorian digits parsed 543
+// years off, while format() has no matching calendar step and just prints the object's
+// own ISO fields either way
 const calendarCache = new Map<string, string | undefined>();
 const MAX_CALENDAR_CACHE_SIZE = 500;
 
 function resolveCalendar(locale: string): string | undefined {
-  // canonicalCacheKey is memoized (localeVocab.ts), so the common path —
-  // repeated parse() calls with the same locale — doesn't construct a
-  // fresh Intl.Locale per call just to compute the calendar-cache key. A
-  // genuinely malformed tag still throws from new Intl.Locale() the same
-  // way it always did; only the repeated-construction cost changed.
+  // canonicalCacheKey is memoized (localeVocab.ts), so the common path — repeated
+  // parse() calls with the same locale — doesn't construct a fresh Intl.Locale per
+  // call just to compute this cache key. a genuinely malformed tag still throws
+  // from new Intl.Locale() the same way it always did
   const canonicalLocale = canonicalCacheKey(locale);
   if (calendarCache.has(canonicalLocale)) {
     return calendarCache.get(canonicalLocale);
@@ -147,10 +144,9 @@ function applyGroup(fields: Fields, token: string, raw: string, locale: string, 
       assignField(fields, 'millisecond', Number(raw));
       break;
     case 'a': {
-      // Matches case-insensitively (see pattern.ts's foldCase for the 'a'
-      // token's regex fragment), so the lookup here has to fold too, or
-      // "pm" would pass the regex and then fail this indexOf against the
-      // exact-case vocab.
+      // matches case-insensitively (see pattern.ts's foldCase for the 'a' token's regex
+      // fragment), so the lookup here has to fold too, or "pm" would pass the regex and
+      // then fail this indexOf against the exact-case vocab
       const periodIndex = vocab.dayPeriod.findIndex((p) => p.toLowerCase() === raw.toLowerCase());
       if (periodIndex < 0) throw new Error(`temporal-fmt-lite: unknown day period "${raw}" for locale "${locale}".`);
       assignField(fields, 'dayPeriodRaw', raw);
@@ -213,24 +209,18 @@ function resolveHour(fields: Fields, formatStr: string, locale: string): number 
 /**
  * Parses `input` against `formatStr` and builds the real Temporal value it
  * describes: a `Temporal.PlainDate`, `PlainTime`, `PlainDateTime`, or
- * `ZonedDateTime` depending on which tokens are present.
+ * `ZonedDateTime` depending on which tokens are present. Returns `unknown` —
+ * this package has no ambient `Temporal` types to return a real one against.
  *
- * Returns `unknown` — this package has no ambient `Temporal` types to return
- * a real one against.
+ * Pass a locale tag with a `-u-ca-` extension (e.g. `'en-u-ca-hebrew'`) to
+ * parse into a non-Gregorian calendar.
  *
- * `options.locale` picks the calendar the result is built in. Pass a locale
- * tag with a `-u-ca-` extension (e.g. `'en-u-ca-hebrew'`) to parse into a
- * non-Gregorian calendar.
- *
- * @throws if `input` doesn't match `formatStr`'s shape at all
- * @throws if it matches the shape but describes an impossible date (e.g. Feb
- * 30) or self-contradictory data (e.g. a weekday name that doesn't match the
- * actual date)
+ * Throws if `input` doesn't match `formatStr`'s shape, or if it matches but
+ * describes an impossible date (e.g. Feb 30) or self-contradictory data
+ * (e.g. a weekday name that doesn't match the actual date).
  *
  * @example
  * parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45') // Temporal.PlainDateTime
- * parse('yyyy-MM', '2026-08-04T15:45:30') // throws — shape doesn't match
- * parse('yyyy-MM-dd', '2026-02-30') // throws — not a real date
  */
 export function parse(formatStr: string, input: string, options: FormatOptions = {}): unknown | undefined {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
@@ -258,41 +248,35 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
     throw new Error(`temporal-fmt-lite: format string "${formatStr}" has no tokens — nothing to parse into a value.`);
   }
 
-  // The regex's zzz fragment only matches a bounded zone-id *shape* (see
-  // TIME_ZONE_SHAPE in pattern.ts) rather than alternating every real IANA
-  // name inline, so a shape match isn't proof of a real zone yet — check
-  // each captured zzz group against the actual zone list here. Kept as the
-  // same "no valid pattern matches" error the inline-alternation version
-  // used to throw, since from the caller's perspective this is still the
-  // regex rejecting the input, just checked in two steps instead of one.
+  // the regex's zzz fragment only matches a bounded zone-id *shape* (see TIME_ZONE_SHAPE
+  // in pattern.ts) rather than alternating every real IANA name inline, so a shape match
+  // isn't proof of a real zone yet — check each captured zzz group against the actual
+  // zone list here. kept as the same "no valid pattern matches" error the inline-alternation
+  // version used to throw, since from the caller's perspective this is still the regex
+  // rejecting the input, just checked in two steps instead of one
   for (const { name, token } of pattern.groups) {
     if (token === 'zzz' && !isValidTimeZone(match.groups![name]!)) {
       throw new Error(`temporal-fmt-lite: no valid pattern matches the format string and input shape`);
     }
   }
 
-  // A run of 2+ adjacent unpadded-numeric tokens with no literal separator
-  // (e.g. "Md", "dM", "Hms") is captured by a single bounded digit group in
-  // the regex (see buildCapturingPattern in parsePattern.ts — per-token
-  // variable-width fragments made near-miss matching exponential in the
-  // number of glued tokens, a real ReDoS risk closed there). Each run's
-  // per-token split is resolved here instead: a unique valid split
-  // resolves silently (identical to what the old regex's own greedy match
-  // produced, since that was always one of the valid splits); 2+ valid
-  // splits is genuine ambiguity in the input and still throws, exactly as
-  // before.
+  // a run of 2+ adjacent unpadded-numeric tokens with no literal separator (e.g. "Md",
+  // "dM", "Hms") is captured by a single bounded digit group in the regex (see
+  // buildCapturingPattern in parsePattern.ts — per-token variable-width fragments made
+  // near-miss matching exponential in the number of glued tokens, a real ReDoS risk
+  // closed there). each run's per-token split is resolved here: a unique valid split
+  // resolves silently (same as what the old regex's own greedy match produced), 2+
+  // valid splits is genuine ambiguity in the input and still throws, exactly as before
   const runValues = new Map<string, string>();
   for (const run of pattern.ambiguousRuns) {
     const runDigits = match.groups![run.groupName]!;
     const splits = enumerateValidSplits(runDigits, run.tokens);
-    // The bounded digit group (\d{R,2R}) matches a wider range of raw
-    // digit strings than the old per-token fragments did — it accepts
-    // anything of the right total length, then this step checks whether
-    // any per-token split of those digits is actually valid. A span that
-    // matched the group's width window but names no valid per-token
-    // assignment (e.g. "99" against "Md" — no valid month/day split)
-    // needs to be rejected the same way the old per-token regex rejected
-    // it at match time.
+    // the bounded digit group (\d{R,2R}) matches a wider range of raw digit strings than
+    // the old per-token fragments did — it accepts anything of the right total length,
+    // then this step checks whether any per-token split is actually valid. a span that
+    // matched the group's width window but names no valid split (e.g. "99" against "Md" —
+    // no valid month/day split) needs to be rejected the same way the old per-token regex
+    // rejected it at match time
     if (splits.length === 0) {
       throw new Error(`temporal-fmt-lite: no valid pattern matches the format string and input shape`);
     }
@@ -309,9 +293,8 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
   }
 
   const fields: Fields = {};
-  // Per-token values for glued-run members come from the split
-  // enumeration above (runValues); every other token reads its own
-  // regex group directly.
+  // per-token values for glued-run members come from the split enumeration above
+  // (runValues); every other token reads its own regex group directly
   for (const { name, token } of pattern.groups) {
     const raw = runValues.get(name) ?? match.groups![name]!;
     applyGroup(fields, token, raw, locale, formatStr);

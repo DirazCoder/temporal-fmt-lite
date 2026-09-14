@@ -20,11 +20,10 @@ import { MAX_FORMAT_LENGTH } from './constants.js';
 
 const HANDLER_BY_TOKEN = new Map(TOKENS.map(([tok, fn, field]) => [tok, { fn, field }]));
 
-// Pre-tokenized format strings, keyed by formatStr — locale doesn't change
-// the tokenization step, only the per-token rendering, so the piece list
-// is shared across locales. Format strings are short hand-written
-// literals reused across many calls (rendering a table of dates, say), so
-// this avoids re-tokenizing on every call.
+// pre-tokenized format strings, keyed by formatStr — locale doesn't change the
+// tokenization step, only per-token rendering, so the piece list is shared
+// across locales. format strings are short hand-written literals reused across
+// many calls (rendering a table of dates, say), so this avoids re-tokenizing every call
 const tokenizeCache = new Map<string, Piece[]>();
 const MAX_TOKENIZE_CACHE_SIZE = 500;
 
@@ -36,13 +35,10 @@ function getPieces(formatStr: string): Piece[] {
     if (oldestKey !== undefined) tokenizeCache.delete(oldestKey);
   }
   pieces = tokenize(formatStr);
-  // Deep-freeze before caching: the same array instance is handed out to
-  // every caller of format() with this exact formatStr. Read-only at the
-  // type level alone doesn't stop runtime mutation — a caller reaching in
-  // and writing pieces[0].value would poison the shared cache and corrupt
-  // every subsequent format() call for that string, process-wide. Frozen
-  // objects make the mutation attempt throw (ESM is strict mode) instead
-  // of silently corrupting shared state.
+  // deep-freeze before caching — the same array instance goes out to every caller
+  // of format() with this exact formatStr, and a caller reaching in and writing
+  // pieces[0].value would poison the shared cache for every future call. frozen
+  // objects make that throw (ESM is strict mode) instead of silently corrupting state
   for (const piece of pieces) Object.freeze(piece);
   Object.freeze(pieces);
   tokenizeCache.set(formatStr, pieces);
@@ -54,11 +50,7 @@ function getPieces(formatStr: string): Piece[] {
  * using a date-fns-style token string.
  *
  * @example
- * format(Temporal.Now.plainDateISO(), 'yyyy-MM-dd') // "2026-08-04"
  * format(zdt, "MMM d, yyyy 'at' h:mm a") // "Aug 4, 2026 at 3:45 PM"
- * format(zdt, 'MMMM d, yyyy', { locale: 'fr-FR' }) // "août 4, 2026"
- *
- * Throws on a token the input type doesn't support (e.g. 'HH' on a PlainDate).
  */
 export function format(temporal: TemporalLike, formatStr: string, options: FormatOptions = {}): string {
   if (formatStr.length > MAX_FORMAT_LENGTH) {
@@ -68,10 +60,9 @@ export function format(temporal: TemporalLike, formatStr: string, options: Forma
     );
   }
 
-  // null/undefined input used to leak a raw V8 TypeError from the first
-  // field read ("Cannot read properties of null (reading 'year')") —
-  // every other entry point validates its input with a real error, and
-  // null/undefined is by far the most common wrong-input mistake.
+  // null/undefined used to leak a raw V8 TypeError from the first field read
+  // ("Cannot read properties of null (reading 'year')") — every other entry point
+  // validates its input with a real error, and this is the most common wrong-input mistake
   if (temporal === null || temporal === undefined) {
     throw new Error(
       `temporal-fmt-lite: format() expected a Temporal.PlainDate / PlainTime / PlainDateTime / ` +

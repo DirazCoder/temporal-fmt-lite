@@ -25,8 +25,8 @@ export function pad(n: number, len: number): string {
   return negative ? '-' + digits : digits;
 }
 
-// Not every field exists on every Temporal type (PlainDate has no .hour,
-// etc). Callers check for undefined before formatting a token.
+// not every field exists on every Temporal type (PlainDate has no .hour etc) —
+// callers check for undefined before formatting a token
 export interface TemporalLike {
   year?: number;
   month?: number;
@@ -65,31 +65,20 @@ function getFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl
     const oldestKey = formatterCache.keys().next().value;
     if (oldestKey !== undefined) formatterCache.delete(oldestKey);
   }
-  // normalizeLocaleTag: Intl.DateTimeFormat rejects underscore-separated
-  // tags ('en_US') outright with a RangeError, even though every cache key
-  // in this library treats them as equivalent to the hyphenated spelling.
-  // Without this, a caller passing 'en_US' got a crash here instead of the
-  // same result 'en-US' would have produced.
+  // Intl.DateTimeFormat throws on underscore tags like 'en_US' even though every
+  // cache key here treats them the same as the hyphenated spelling, so normalize first
   formatter = new Intl.DateTimeFormat(normalizeLocaleTag(locale), options);
   formatterCache.set(key, formatter);
   return formatter;
 }
 
-// Passing a Temporal object straight into `new Intl.DateTimeFormat().formatToParts()`
-// only works when the engine's Intl implementation has special-cased support for
-// *native* Temporal instances (checked via internal slots and/or gated behind a V8 flag,
-// not tied to a specific Node version).
-//
-// A Temporal polyfill's instances don't have those slots, so the engine falls back to ToNumber() -> .valueOf(),
-// which the polyfill deliberately throws on ("Cannot use valueOf").
-// Probed once and memoized and only from intlPart(), so it never
-// runs unless a format string actually uses a locale-aware token.
+// formatToParts() on a raw Temporal object only works if the engine special-cases
+// native Temporal instances — a polyfill's instances don't have those internal slots,
+// so the engine falls back to .valueOf(), which the polyfill throws on. probed once,
+// memoized, only runs when a format string actually uses a locale-aware token
 let nativeSupport: boolean | undefined;
-// Invalidate the memoized probe whenever setTemporal() swaps the active
-// implementation — otherwise a probe result from "is native Temporal
-// supported" could keep being used after the active implementation is
-// no longer the one that was probed. See setTemporal() in
-// temporalProvider.ts for the other half of this.
+// invalidate whenever setTemporal() swaps implementations, or this'd stay stale —
+// see setTemporal() in temporalProvider.ts for the other half
 subscribeToTemporalChanges(() => { nativeSupport = undefined; });
 
 function intlSupportsNativeTemporal(): boolean {
@@ -113,50 +102,30 @@ function intlPart(
   options: Intl.DateTimeFormatOptions,
   partType: Intl.DateTimeFormatPartTypes
 ): string {
-  // Intl throws "Mismatching Calendars" if the formatter's calendar doesn't
-  // match the object's own (e.g. en-US formatter defaults to gregory, but
-  // a hebrew/islamic PlainDate needs its own calendar passed through).
-  //
-  // For iso8601 specifically, force 'gregory' rather than leaving calendar
-  // unset: numeric fields (yyyy/dd, see tokens' pad()-based handlers) are
-  // always pulled straight off the object's own ISO fields — so if the
-  // *locale* carries a `-u-ca-*` extension (e.g. 'en-u-ca-hebrew') and this
-  // step left calendar unset, the formatter would resolve its own default
-  // calendar from the locale and format MMMM/EEEE in that calendar while
-  // yyyy/dd stay ISO, producing a date that looks internally consistent
-  // (a real Hebrew month name next to a real-looking day/year) but names a
-  // completely different day than the object actually represents. Forcing
-  // 'gregory' here keeps every field of an ISO object's output anchored to
-  // the same (ISO/Gregorian) calendar — a locale's calendar extension only
-  // takes effect when the object itself already carries a non-ISO calendar
-  // (via `.withCalendar()`), matching what the README documents.
-  //
-  // 'gregory' specifically, not 'iso8601' — passing `calendar: 'iso8601'`
-  // explicitly alongside a single-field options object makes
-  // formatToParts() come back empty for some reason, but 'gregory' doesn't
-  // have that problem and Temporal's iso8601 calendar is Gregorian-shaped
-  // (proleptic Gregorian throughout, no Julian cutover) so the two agree
-  // on every numeric field this library ever reads.
+  // Intl throws "Mismatching Calendars" if the formatter's calendar doesn't match the
+  // object's own. for iso8601 we force 'gregory' instead of leaving it unset — otherwise
+  // a locale's -u-ca-* extension (e.g. 'en-u-ca-hebrew') would make MMMM/EEEE render in
+  // that calendar while yyyy/dd stay ISO, silently naming a different day than the object
+  // actually represents. 'gregory' not 'iso8601' — passing 'iso8601' explicitly makes
+  // formatToParts() come back empty for some reason, and they agree on every numeric field
+  // anyway since Temporal's iso8601 calendar is proleptic Gregorian throughout
   const calendar = temporal?.calendarId;
   const formatterOptions: Intl.DateTimeFormatOptions = {
     ...options,
     calendar: calendar && calendar !== 'iso8601' ? calendar : 'gregory',
   };
 
-  // Temporal.prototype.toLocaleString() is part of the Temporal spec itself:
-  // polyfills implement the ICU formatting internally without needing the
-  // engine to recognize the object, so it works without native Intl support.
+  // toLocaleString() is part of the Temporal spec itself, so polyfills implement the
+  // ICU formatting internally and it works without native Intl support
   if (!intlSupportsNativeTemporal()) {
-    // normalizeLocaleTag here too — the active Temporal implementation's
-    // toLocaleString forwards the locale straight to Intl.DateTimeFormat
-    // internally, which has the same underscore-tag rejection getFormatter
-    // works around above.
+    // same underscore-tag issue getFormatter works around — toLocaleString forwards
+    // the locale straight to Intl.DateTimeFormat internally
     return temporal.toLocaleString!(normalizeLocaleTag(locale), formatterOptions);
   }
 
-  // formatToParts() throws on ZonedDateTime directly (per spec), so convert
-  // to Instant and pass the zone via `timeZone` instead. Don't convert to
-  // PlainDateTime — that drops the zone, which breaks 'MMMM' + 'zzz' combos.
+  // formatToParts() throws on ZonedDateTime directly, so convert to Instant and pass
+  // the zone via timeZone instead — not PlainDateTime, that drops the zone and breaks
+  // 'MMMM' + 'zzz' combos
   const { toInstant, timeZoneId } = temporal;
   const isZoned = typeof toInstant === 'function' && typeof timeZoneId === 'string';
   // has to be called as temporal.toInstant() because destructuring it off breaks
@@ -176,12 +145,10 @@ function intlPart(
       `This usually means the Temporal object is missing the field the token needs.`
     );
   }
-  // some locales (ja-JP) split a field across two parts — e.g. month "8"
-  // plus a counter suffix "月" as a separate sibling literal part. Merge in
-  // an adjacent literal only if it has no whitespace, so a genuine suffix
-  // gets folded in but an ordinary separator (the space before "AM") stays
-  // a separator. Mirrors partValue() in localeVocab.ts, which builds the
-  // vocab this token's output needs to match for parse() to round-trip.
+  // some locales (ja-JP) split a field across two parts, e.g. month "8" plus a counter
+  // suffix "月" as a sibling literal — merge in only if there's no whitespace, so the
+  // suffix gets folded in but a real separator doesn't. mirrors partValue() in
+  // localeVocab.ts, which builds the vocab this needs to match for parse() to round-trip
   let value = parts[index]!.value;
   const prev = parts[index - 1];
   const next = parts[index + 1];
@@ -190,14 +157,10 @@ function intlPart(
   return value;
 }
 
-// Temporal.prototype.toLocaleString() can't isolate a single field the way
-// formatToParts() can — asking for `hour` + `dayPeriod` together returns one
-// joined string (e.g. "3 in the afternoon"), and `dayPeriod` alone resolves
-// against a different, non-hour-anchored set of periods ("in the
-// afternoon"/"昼" instead of "PM"/"午後"). Day period only depends on the
-// hour anyway, so route it through a plain UTC Date and Intl.DateTimeFormat
-// instead — that's worked the same on every engine regardless of whether
-// Temporal itself is native or polyfilled.
+// toLocaleString() can't isolate dayPeriod alone the way formatToParts() can — hour +
+// dayPeriod together returns a joined string, and dayPeriod alone resolves against a
+// different set of periods entirely. day period only depends on the hour anyway, so
+// route it through a plain UTC Date instead, which works the same everywhere
 function dayPeriodPart(hour: number, locale: string): string {
   const date = new Date(Date.UTC(1970, 0, 1, hour));
   const formatter = getFormatter(locale, { hour: 'numeric', hour12: true, timeZone: 'UTC' });
@@ -210,22 +173,19 @@ function dayPeriodPart(hour: number, locale: string): string {
 
 type TokenHandler = (t: TemporalLike, locale: string) => string;
 
-// Longest-first — tokenizer is greedy, "yyyy" has to be tried before "yy".
-//
-// Numeric tokens always render in ASCII digits, never locale-native
-// (Arabic-Indic, Devanagari, etc). Padding non-ASCII digits isn't as simple
-// as padding "3", and most consumers parsing these back out want plain
-// digits anyway.
+// longest-first since the tokenizer is greedy ("yyyy" has to be tried before "yy") —
+// numeric tokens always render in ASCII digits, never locale-native (Arabic-Indic,
+// Devanagari etc), since padding non-ASCII digits isn't as simple as padding "3"
 export const TOKENS: Array<[string, TokenHandler, keyof TemporalLike]> = [
   ['yyyy', (t) => pad(t.year!, 4), 'year'],
   ['yy', (t) => {
-    // -45 % 100 === -45, so truncating negative years to 2 digits doesn't
-    // work and Math.abs() would make 45 CE and 45 BCE render the same.
+    // -45 % 100 === -45, so truncating negative years to 2 digits doesn't work —
+    // and Math.abs() would make 45 CE and 45 BCE render the same
     if (t.year! < 0) {
       throw new Error(
         `temporal-fmt-lite: token "yy" doesn't support negative years (got ${t.year}), ` +
         `since truncating to 2 digits would make it indistinguishable from a ` +
-        `positive year. Use "yyyy" instead.`
+        `positive year. use "yyyy" instead.`
       );
     }
     return pad(t.year! % 100, 2);

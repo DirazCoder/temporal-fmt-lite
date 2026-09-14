@@ -14,14 +14,8 @@
  * limitations under the License.
  */
 
-// This package's tsconfig assumes lib: ["ESNext"] only — no ambient
-// `Temporal` namespace type. Everywhere else in this codebase only ever
-// *reads* fields off a Temporal-like object the caller already built
-// (TemporalLike in tokens.ts). This module is the single choke point for
-// touching a *namespace*-shaped Temporal (PlainDate.from, etc.): parse()
-// uses it to construct a result, tokens.ts uses it to probe native
-// Intl<->Temporal support. Consumers can hand us an implementation via
-// setTemporal(), or we fall back to globalThis.Temporal.
+// no ambient Temporal type since tsconfig only has lib: ["ESNext"], so this is the one
+// place that constructs from a namespace (PlainDate.from etc) instead of just reading fields
 interface TemporalFactory {
   from(fields: Record<string, number | string | undefined>, options?: { overflow?: 'constrain' | 'reject' }): unknown;
 }
@@ -35,13 +29,8 @@ export interface TemporalNamespace {
 
 let injectedTemporal: TemporalNamespace | undefined;
 
-// Anything that caches a result derived from *which* Temporal
-// implementation is active (right now: tokens.ts's native-Intl-support
-// probe) registers here so it gets invalidated whenever setTemporal()
-// swaps the implementation — see the comment on setTemporal() below for
-// why that matters. A plain array instead of an event-emitter-style API
-// since this only ever needs "call every listener, in registration order,
-// with no payload" — nothing here needs unsubscribe or payload data.
+// anything caching a result tied to which Temporal impl is active (right now just
+// tokens.ts's native-Intl probe) registers here so setTemporal() can invalidate it
 const onTemporalChanged: Array<() => void> = [];
 
 export function subscribeToTemporalChanges(listener: () => void): void {
@@ -63,14 +52,8 @@ export function subscribeToTemporalChanges(listener: () => void): void {
  */
 export function setTemporal(temporal?: TemporalNamespace): void {
   injectedTemporal = temporal;
-  // tokens.ts's native-Intl-support probe is keyed on whichever Temporal
-  // implementation was active the first time a locale-aware format() ran —
-  // if that implementation changes later (native -> polyfill or back), the
-  // memoized probe result can go stale and disagree with what's now
-  // actually active. Resetting it here means the next locale-aware format()
-  // after any setTemporal() call re-probes against the implementation
-  // that's active *now*, at the (small, one-time-per-switch) cost of
-  // re-running the probe.
+  // tokens.ts's native-Intl probe is memoized from whichever impl was active when it
+  // first ran, so it'd go stale here otherwise — tell listeners to re-probe
   for (const listener of onTemporalChanged) listener();
 }
 
