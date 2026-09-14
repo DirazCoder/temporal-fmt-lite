@@ -2,7 +2,7 @@
 
 Format Temporal dates with date-fns-style tokens. Just `format()` and `parse()`, nothing else.
 
-This is the lite version of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, ~7x smaller. It's meant to stay small. See [why](#why) below.
+This is the lite version of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, ~29x smaller. It's meant to stay small. See [why](#why) below.
 
 No deps. Works natively on Node 26+. Bring a polyfill if you're older.
 
