@@ -75,7 +75,7 @@ parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine, that's really a Tues
 parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws, it's not
 ```
 
-Some gotchas:
+Some uhh, random things:
 
 - **`yy` (2-digit year)** works like old-school strptime: `00–68` → `2000–2068`, `69–99` → `1900–1999`. Yes it's arbitrary, but it means `yy` doesn't need some external reference date to resolve.
 - **Mixing `hh`/`h` with `HH`/`H`, or using `hh`/`h` without an `a` token, throws.** It won't guess which one you meant even if they'd agree on the hour anyway. Just pick one.
