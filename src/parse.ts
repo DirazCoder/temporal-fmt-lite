@@ -281,9 +281,13 @@ export function parse(formatStr: string, input: string, options: FormatOptions =
       throw new Error(`temporal-fmt-lite: no valid pattern matches the format string and input shape`);
     }
     if (splits.length > 1) {
+      // splits.length tops out at 2 (enumerateValidSplits stops looking once it's found a
+      // second one — that's already enough to know the input is ambiguous, and searching
+      // further just to report an exact count would mean doing unbounded extra work for a
+      // number nobody needs), so this says "at least 2", never a specific total
       throw new Error(
         `temporal-fmt-lite: "${runDigits}" in format string "${formatStr}" is ambiguous — ` +
-        `${splits.length} different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
+        `at least 2 different ways to read tokens "${run.tokens.join('')}" (with no separator ` +
         `between them) are all individually valid (e.g. ${JSON.stringify(splits[0])} vs ${JSON.stringify(splits[1])}). ` +
         `parse() won't guess; add a separator between these tokens, or use their padded form ` +
         `(e.g. "MM" instead of "M") so each one has a fixed width.`

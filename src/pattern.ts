@@ -71,8 +71,15 @@ export function isValidTimeZone(raw: string): boolean {
 }
 
 // mirrors what pad() in tokens.ts produces, keep in sync
-// longer branch listed first (1[0-2] before [1-9]) so glued tokens like "Md" against "121"
-// resolve as month=12/day=1 instead of month=1/day=21 — found via combinatorial.test.js
+// longer branch listed first (1[0-2] before [1-9]) so a LONE unpadded token greedily prefers
+// its 2-digit reading when it's up against a digit-leading literal or the end of the string —
+// e.g. "M" against "12" in "M'x'" matches month=12, not month=1 with "2" left over for the
+// literal to fail on. this ordering only matters for a lone token like that: two or more
+// unpadded tokens glued together (like "Md") don't use this alternation at all anymore — they
+// go through the bounded digit group + enumerateValidSplits() below instead, which is what
+// actually decides "Md" against "121" (that used to be resolved by this same greedy ordering,
+// back when glued runs were still one big alternation; these days a glued run like that comes
+// out ambiguous and parse() throws rather than guessing — see enumerateValidSplits())
 const NUMERIC_FRAGMENTS: Record<string, string> = {
   yy: '\\d{2}',
   MM: '(?:0[1-9]|1[0-2])',
@@ -139,49 +146,102 @@ export const UNPADDED_NUMERIC_RANGES: Record<string, Array<{ digits: 1 | 2; min:
   s: [{ digits: 1, min: 0, max: 9 }, { digits: 2, min: 10, max: 59 }],
 };
 
-// splits a matched digit run into per-token pieces, one array per valid split
-// 0 splits shouldn't happen, 1 is unambiguous, 2+ means the caller should throw instead of guessing
-// recursive so a 3+ token run like "Hms" works too, not just pairs
+// splits a matched digit run into per-token pieces. the caller (parse.ts) only ever needs to
+// know if there were 0, 1, or 2+ valid splits and see up to two examples, so this stops
+// counting at 2 — 0 shouldn't happen, 1 is unambiguous, 2+ means the caller throws instead of
+// guessing. recursive so a 3+ token run like "Hms" works too, not just pairs
+//
+// two passes instead of one: countSplitsFrom() below walks the (tokenIndex, offset) grid once,
+// memoized, and only ever stores a count (capped at 2) at each cell — never a split array. the
+// old version memoized full arrays and built each one with [value, ...restSplit], so on a long
+// run every one of the O(n^2) grid cells* paid to copy its child's array on top of just visiting
+// it, and a 1000-char glued run (MAX_FORMAT_LENGTH's max) spent a quarter of a second doing nothing
+// but that copying. counting first is cheap (integers, not arrays), and reconstructSplit() then
+// replays the counts to build at most 2 real splits in a single pass each, with no re-searching.
+//
+// *why O(n^2) cells and not O(n): tokenIndex always advances by 1 per token, but offset can
+// advance by 1 or 2 digits depending on which width matched, so by the time we're n tokens in,
+// offset could be anywhere from n to 2n — that's O(n) reachable offsets per tokenIndex, O(n^2)
+// total. that's inherent to variable-width tokens, not something memoization alone fixes; it's
+// why this still costs tens of milliseconds at the format-length ceiling instead of being free
 export function enumerateValidSplits(digits: string, tokens: string[]): number[][] {
-  const memo = new Map<string, number[][]>();
+  const memo = new Map<number, number>();
+  const gridWidth = digits.length + 1;
+  const cellKey = (tokenIndex: number, offset: number) => tokenIndex * gridWidth + offset;
 
-  function solve(tokenIndex: number, offset: number): number[][] {
-    const key = `${tokenIndex}:${offset}`;
+  function countSplitsFrom(tokenIndex: number, offset: number): number {
+    const key = cellKey(tokenIndex, offset);
     const cached = memo.get(key);
-    if (cached) {
-      return cached;
-    }
+    if (cached !== undefined) return cached;
 
+    let total = 0;
     if (tokenIndex === tokens.length) {
-      const result = offset === digits.length ? [[]] : [];
-      memo.set(key, result);
-      return result;
-    }
-
-    const token = tokens[tokenIndex];
-    const ranges = UNPADDED_NUMERIC_RANGES[token!];
-    if (!ranges) {
-      throw new Error(`temporal-fmt-lite: internal error — "${token}" is not an unpadded numeric token`);
-    }
-
-    const results: number[][] = [];
-    for (const { digits: width, min, max } of ranges) {
-      if (offset + width > digits.length) continue;
-      const piece = digits.slice(offset, offset + width);
-      if (width === 2 && piece[0] === '0') continue;
-      const value = Number(piece);
-      if (value < min || value > max) continue;
-
-      for (const restSplit of solve(tokenIndex + 1, offset + width)) {
-        results.push([value, ...restSplit]);
-        if (results.length === 2) break;
+      total = offset === digits.length ? 1 : 0;
+    } else {
+      const ranges = UNPADDED_NUMERIC_RANGES[tokens[tokenIndex]!];
+      if (!ranges) {
+        throw new Error(`temporal-fmt-lite: internal error — "${tokens[tokenIndex]}" is not an unpadded numeric token`);
       }
-      if (results.length === 2) break;
+      for (const { digits: width, min, max } of ranges) {
+        if (offset + width > digits.length) continue;
+        const piece = digits.slice(offset, offset + width);
+        if (width === 2 && piece[0] === '0') continue;
+        const value = Number(piece);
+        if (value < min || value > max) continue;
+        total += countSplitsFrom(tokenIndex + 1, offset + width);
+        if (total >= 2) break;
+      }
+      total = Math.min(total, 2);
     }
 
-    memo.set(key, results);
-    return results;
+    memo.set(key, total);
+    return total;
   }
 
-  return solve(0, 0);
+  const splitCount = countSplitsFrom(0, 0);
+  if (splitCount === 0) return [];
+
+  // walks the same grid countSplitsFrom() already filled in, picking the `skip`-th split at
+  // each fork — every count this needs is already memoized, so it's O(tokens.length) lookups
+  // total, not a fresh search
+  function reconstructSplit(skip: number): number[] {
+    const result: number[] = [];
+    let tokenIndex = 0;
+    let offset = 0;
+    let remaining = skip;
+
+    while (tokenIndex < tokens.length) {
+      const ranges = UNPADDED_NUMERIC_RANGES[tokens[tokenIndex]!]!;
+      let matched = false;
+      for (const { digits: width, min, max } of ranges) {
+        if (offset + width > digits.length) continue;
+        const piece = digits.slice(offset, offset + width);
+        if (width === 2 && piece[0] === '0') continue;
+        const value = Number(piece);
+        if (value < min || value > max) continue;
+        const branchCount = memo.get(cellKey(tokenIndex + 1, offset + width)) ?? 0;
+        if (branchCount === 0) continue;
+        if (remaining >= branchCount) {
+          remaining -= branchCount;
+          continue;
+        }
+        result.push(value);
+        tokenIndex += 1;
+        offset += width;
+        matched = true;
+        break;
+      }
+      if (!matched) {
+        throw new Error('temporal-fmt-lite: internal error — enumerateValidSplits reconstruction desynced from its own count');
+      }
+    }
+
+    return result;
+  }
+
+  const results: number[][] = [];
+  for (let skip = 0; skip < splitCount; skip++) {
+    results.push(reconstructSplit(skip));
+  }
+  return results;
 }
