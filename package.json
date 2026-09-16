@@ -1,6 +1,6 @@
 {
   "name": "temporal-fmt-lite",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Format Temporal.PlainDate/PlainDateTime/PlainTime/ZonedDateTime objects using date-fns-style token strings. Minimal, frozen API, no dependencies.",
   "type": "module",
   "main": "./dist/index.cjs",
