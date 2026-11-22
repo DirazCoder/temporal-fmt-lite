@@ -2,11 +2,11 @@
 
 Format Temporal dates with date-fns-style tokens. Just `format()` and `parse()`, nothing else.
 
-This is the lite version of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, ~52x smaller. It's meant to stay small. See [why](#why) below.
+The lite version of [`temporal-fmt`](https://github.com/DirazCoder/temporal-fmt) — same two functions, same locales, no extras. Created back when the main package was several megabytes. As of 0.9.92, `temporal-fmt` itself is down to 508KB (~88% smaller than it used to be), so the size gap is much narrower now. Use this if you genuinely only want `format()` and `parse()` and are sure you'll never need anything else — business calendars, recurrence, intervals, timezone utils, etc. If there's any chance you'll want those later, just use `temporal-fmt/format` and `temporal-fmt/parse` subpaths directly — same lean footprint, no migration needed when you grow into the rest.
 
 No deps. Works natively on Node 26+. Bring a polyfill if you're older.
 
-Locale stuff (month/weekday names) needs Node 20+ either way. Haven't tested below that.
+Locale stuff (month/weekday names) needs Node 20+ either way.
 
 ## Install
 
@@ -34,16 +34,14 @@ import { setTemporal, format, parse } from 'temporal-fmt-lite';
 setTemporal(Temporal); // do this before calling format/parse
 ```
 
-Calling `setTemporal()` again just overwrites whatever was set before.
-
 ## Usage
 
 ```js
 import { format } from 'temporal-fmt-lite';
 
 const date = Temporal.PlainDate.from('2026-08-04');
-format(date, 'yyyy-MM-dd');           // "2026-08-04"
-format(date, 'MMMM d, yyyy');         // "August 4, 2026"
+format(date, 'yyyy-MM-dd');            // "2026-08-04"
+format(date, 'MMMM d, yyyy');          // "August 4, 2026"
 
 const dt = Temporal.PlainDateTime.from('2026-08-04T15:45:30');
 format(dt, "MMM d, yyyy 'at' h:mm a"); // "Aug 4, 2026 at 3:45 PM"
@@ -61,101 +59,87 @@ Want literal text in the output? Wrap it in single quotes, like `'at'` above. Ne
 ```js
 import { parse } from 'temporal-fmt-lite';
 
-parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');    // PlainDateTime
+parse('yyyy-MM-dd HH:mm', '2026-08-04 15:45');   // PlainDateTime
 parse('yyyy-MM', '2026-08-04T15:45:30');          // throws, shape doesn't match
 parse('yyyy-MM-dd', '2026-02-30');                // throws, Feb 30 isn't a day
 ```
 
-You'll need an `instanceof` check (or a type guard in TS) to know what you got back, since the return type depends on the format string.
-
 It actually builds the date rather than just pattern-matching, so it'll also catch a weekday that doesn't match the date:
 
 ```js
-parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04');  // fine, that's really a Tuesday
-parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');   // throws, it's not
+parse('EEEE, yyyy-MM-dd', 'Tuesday, 2026-08-04'); // fine, that's really a Tuesday
+parse('EEEE, yyyy-MM-dd', 'Monday, 2026-08-04');  // throws, it's not
 ```
 
-Some uhh, random things:
+A few things worth knowing:
 
-- **`yy` (2-digit year)** works like old-school strptime: `00–68` → `2000–2068`, `69–99` → `1900–1999`. Yes it's arbitrary, but it means `yy` doesn't need some external reference date to resolve.
-- **Mixing `hh`/`h` with `HH`/`H`, or using `hh`/`h` without an `a` token, throws.** It won't guess which one you meant even if they'd agree on the hour anyway. Just pick one.
-- **`MMMM`/`MMM` name matching only really knows 12-month calendars.** It's built off 12 Gregorian reference dates, so calendars with leap months (Hebrew, for instance) aren't fully covered by name. Numeric `yyyy-MM-dd` is fine regardless.
+- **`yy` (2-digit year)** works like strptime: `00–68` → `2000–2068`, `69–99` → `1900–1999`.
+- **Mixing `hh`/`h` with `HH`/`H`, or using `hh`/`h` without an `a` token, throws.** Pick one.
+- **`MMMM`/`MMM` name matching only really knows 12-month calendars.** Numeric `yyyy-MM-dd` is fine regardless.
 
 ## Locales
 
-Pass a BCP 47 tag as the third arg and month/weekday/AM-PM names localize. Default is `'en-US'`.
+Pass a BCP 47 tag and month/weekday/AM-PM names localize. Default is `'en-US'`.
 
 ```js
-format(date, 'MMMM d, yyyy', { locale: 'fr-FR' });   // "août 4, 2026"
-format(date, 'EEEE d MMMM', { locale: 'ar-EG' });    // Arabic names
-format(dt, 'h:mm a', { locale: 'ja-JP' });            // "3:45 午後"
+format(date, 'MMMM d, yyyy', { locale: 'fr-FR' }); // "août 4, 2026"
+format(date, 'EEEE d MMMM', { locale: 'ar-EG' });  // Arabic names
+format(dt, 'h:mm a', { locale: 'ja-JP' });          // "3:45 午後"
 ```
 
-`a` matches AM/PM case-insensitively when parsing — `pm`, `Pm`, `PM`, whatever.
-
-The name-based tokens (`MMMM`, `MMM`, `EEEE`, `EEE`, `a`) go through `Intl.DateTimeFormat`, so non-Gregorian calendars work too as long as your Temporal object already has one:
+Same for parsing:
 
 ```js
-const hebrewDate = date.withCalendar('hebrew');
-format(hebrewDate, 'MMMM d, yyyy');   // "Av 21, 5786"
-```
-
-Same deal for parsing:
-
-```js
-parse('MMMM d, yyyy','août 4, 2026', { locale: 'fr-FR' });
+parse('MMMM d, yyyy', 'août 4, 2026', { locale: 'fr-FR' });
 parse('h:mm a', '3:45 午後', { locale: 'ja-JP' });
-parse('yyyy-MM-dd', '5786-11-21', { locale: 'en-u-ca-hebrew' }); // -u-ca- picks the calendar
 ```
 
-**One thing that's non-negotiable: numbers always come out as plain 0-9 digits, no matter the locale.** Not a bug. Stuff that reads these values back — logs, APIs, filenames — wants boring ASCII digits, and the padding logic doesn't play nice with Arabic-Indic or Devanagari numerals anyway. If you want localized digits, run them through `Intl.NumberFormat` yourself.
+Numbers always come out as plain 0-9 digits regardless of locale. If you want localized digits, run them through `Intl.NumberFormat` yourself.
 
 ## Tokens
 
-| Token | Meaning            | Example |
-|-------|--------------------|---------|
-| yyyy  | 4-digit year       | 2026    |
-| yy    | 2-digit year       | 26      |
-| MMMM  | full month name    | August  |
-| MMM   | short month name   | Aug     |
-| MM    | 2-digit month      | 08      |
-| M     | month              | 8       |
-| dd    | 2-digit day        | 04      |
-| d     | day                | 4       |
-| EEEE  | full weekday       | Tuesday |
-| EEE   | short weekday      | Tue     |
-| HH    | 2-digit hour (24h) | 15      |
-| H     | hour (24h)         | 15      |
-| hh    | 2-digit hour (12h) | 03      |
-| h     | hour (12h)         | 3       |
-| mm    | 2-digit minute     | 45      |
-| m     | minute             | 45      |
-| ss    | 2-digit second     | 30      |
-| s     | second             | 30      |
-| SSS   | milliseconds       | 000     |
-| a     | AM/PM              | PM      |
+| Token | Meaning            | Example          |
+|-------|--------------------|------------------|
+| yyyy  | 4-digit year       | 2026             |
+| yy    | 2-digit year       | 26               |
+| MMMM  | full month name    | August           |
+| MMM   | short month name   | Aug              |
+| MM    | 2-digit month      | 08               |
+| M     | month              | 8                |
+| dd    | 2-digit day        | 04               |
+| d     | day                | 4                |
+| EEEE  | full weekday       | Tuesday          |
+| EEE   | short weekday      | Tue              |
+| HH    | 2-digit hour (24h) | 15               |
+| H     | hour (24h)         | 15               |
+| hh    | 2-digit hour (12h) | 03               |
+| h     | hour (12h)         | 3                |
+| mm    | 2-digit minute     | 45               |
+| m     | minute             | 45               |
+| ss    | 2-digit second     | 30               |
+| s     | second             | 30               |
+| SSS   | milliseconds       | 000              |
+| a     | AM/PM              | PM               |
 | zzz   | IANA time zone id  | America/New_York |
 
-That's all of them, and there won't be more. Use a token your input doesn't support — `HH` on a plain date, say — and it throws a real error instead of quietly giving you `undefined`.
+That's all of them, and there won't be more.
 
 ## Why
 
-`temporal-fmt` started as just `format()` and `parse()`. Then it grew a CLI, IDE tooling, a plugin sandbox, business calendars, holiday calendars, recurrence rules, a timezone subsystem... all useful on their own, but together they turned a 200KB install into several megabytes for anyone who just wanted `'yyyy-MM-dd'`. Numbers are in [dirazcoder/temporal-fmt#9](https://github.com/DirazCoder/temporal-fmt/issues/9) if you want them.
+This package exists for one reason: you want `format()` and `parse()` and nothing else, and you want a hard guarantee that nothing else ever gets added. `temporal-fmt` has grown a lot since 0.8.x — CLI, IDE tooling, business calendars, recurrence rules, timezone utils — all useful, but not for everyone. And while the main package is now 508KB (down from 4MB+), this one is still smaller if that matters to you.
 
-This package is that original surface, pulled back out. Same core behavior, same feature set — just the classic `format()`/`parse()` combo, kept small on purpose.
+**What that means in practice:**
 
-**What that means:**
-
-- No new tokens, functions, or options, ever. If it's not in this README it's not sneaking in later.
-- This is small and done, not a growing product. If you outgrow it and need the CLI, recurrence rules, business calendars, whatever — go to `temporal-fmt` itself. Since this package's API is a subset of that one's, migrating is just adding stuff, not rewriting.
+- No new tokens, functions, or options, ever.
+- If you outgrow it, migrating to `temporal-fmt` is additive — the API is a strict subset, so nothing breaks.
 
 ## Known limitations
 
-- Numbers are always Western digits, see the locale section above.
-- Locale tokens need Node 20+. Untested below that.
+- Numbers are always Western digits (see locales section).
+- Locale tokens need Node 20+.
 - You have to hook up Temporal yourself unless you're on Node 26+.
-- On native Temporal (Node 26+), locale name tokens (`MMMM`/`MMM`/`EEEE`/`EEE`) can get the wrong month or weekday for dates before ~1582 CE — that's an ICU calendar quirk, not something specific to this package.
-- Gluing two unpadded numeric tokens together with nothing between them (`Md`, `dM`, `Hm`) is ambiguous sometimes, and `parse()` throws instead of guessing. Zero-pad (`MM`/`dd`) or add a separator and it's fine.
+- On native Temporal (Node 26+), locale name tokens can get the wrong month or weekday for dates before ~1582 CE — that's an ICU quirk.
+- Gluing two unpadded numeric tokens together with nothing between them (`Md`, `dM`, `Hm`) is ambiguous and throws. Zero-pad or add a separator.
 
 ## License
 
